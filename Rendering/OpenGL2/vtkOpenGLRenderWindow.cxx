@@ -56,6 +56,12 @@
 #include "vtkTextureObjectVS.h" // a pass through shader
 
 #include <cstdlib>
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
+
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -1345,6 +1351,40 @@ void vtkOpenGLRenderWindow::SetOpenGLSymbolLoader(VTKOpenGLLoaderFunction loader
 {
   this->SymbolLoader.LoadFunction = loader;
   this->SymbolLoader.UserData = userData;
+}
+
+void vtkOpenGLRenderWindow::SetOpenGLSymbolLoader2(long long glGetProcAddressFunc, long long glLibHandle)
+{
+  static_assert(sizeof(long long) >= sizeof(void*)); // ensure binary compatibility
+  glFuncResolverState.resolveFunc = (VTKOpenGLGetProcAddress)glGetProcAddressFunc;
+  glFuncResolverState.libHandle = (void*)glLibHandle;
+
+  auto loadFunc = [](void* userptr, const char* name) -> VTKOpenGLAPIProc
+  {
+    GLFuncResolverState * state = reinterpret_cast<GLFuncResolverState*>(userptr);
+    if (!name || !state) {
+      return nullptr;
+    }
+    VTKOpenGLAPIProc p = nullptr;
+    if (state->resolveFunc) {
+      p = state->resolveFunc(name);
+    }
+#if defined(_WIN32)
+    if(( p == 0 ||
+         (p == (void*)0x1) || (p == (void*)0x2) || (p == (void*)0x3) ||
+         (p == (void*)-1) ) &&
+       state->libHandle)
+    {
+      p = (VTKOpenGLAPIProc) GetProcAddress((HMODULE)state->libHandle, name);
+    }
+#else
+    if (!p && state->libHandle) {
+      p = (VTKOpenGLAPIProc) dlsym(state->libHandle, name);
+    }
+#endif
+    return p;
+  };
+  this->SetOpenGLSymbolLoader(loadFunc, &glFuncResolverState);
 }
 
 void vtkOpenGLRenderWindow::TextureDepthBlit(vtkTextureObject* source, int srcX, int srcY,
