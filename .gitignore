@@ -23,3 +23,6 @@ CMakeSettings.json
 
 # Exclude QtCreator files ...
 CMakeLists.txt.user*
+
+build*/
+dist*/
